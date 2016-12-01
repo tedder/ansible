@@ -94,7 +94,7 @@ class CallbackBase:
         if 'exception' in abridged_result:
             del abridged_result['exception']
 
-        return json.dumps(abridged_result, indent=indent, ensure_ascii=False, sort_keys=sort_keys)
+        return json.dumps(abridged_result, indent=indent, ensure_ascii=True, sort_keys=sort_keys)
 
     def _handle_warnings(self, res):
         ''' display warnings, if enabled and any exist in the result '''
