@@ -25,7 +25,7 @@ DOCUMENTATION = '''
 module: kms
 short_description: Perform various KMS management tasks.
 description:
-     - Manage role/user access to a KMS key. Not designed for encrypting/decrypting.
+     - Adds and removes roles/users from a KMS key. Not designed for encrypting/decrypting. Just management.
 version_added: "2.3"
 options:
   mode:
@@ -46,20 +46,10 @@ options:
     description:
     - Role to allow/deny access. One of C(role_name) or C(role_arn) are required.
     required: false
-  role_arn:
-    description:
-    - ARN of role to allow/deny access. One of C(role_name) or C(role_arn) are required.
-    required: false
   grant_types:
     description:
     - List of grants to give to user/role. Likely "role,role grant" or "role,role grant,admin". Required when C(mode=grant).
     required: false
-  clean_invalid_entries:
-    description:
-    - If adding/removing a role and invalid grantees are found, remove them. These entries will cause an update to fail in all known cases.
-    - Only cleans if changes are being made.
-    type: bool
-    default: true
 
 author: tedder
 extends_documentation_fragment:
@@ -89,10 +79,6 @@ changes_needed:
   type: dict
   returned: always
   sample: { "role": "add", "role grant": "add" }
-had_invalid_entries:
-  description: there are invalid (non-ARN) entries in the KMS entry. These don't count as a change, but will be removed if any changes are being made.
-  type: boolean
-  returned: always
 '''
 
 # these mappings are used to go from simple labels to the actual 'Sid' values returned
@@ -153,14 +139,13 @@ def get_arn_from_role_name(iam, rolename):
         return ret['Role']['Arn']
     raise Exception('could not find arn for name {}.'.format(rolename))
 
-def do_grant(kms, keyarn, role_arn, granttypes, mode='grant', dry_run=True, clean_invalid_entries=True):
+def do_grant(kms, keyarn, role_arn, granttypes, mode='grant', dry_run=True):
     ret = {}
     keyret = kms.get_key_policy(KeyId=keyarn, PolicyName='default')
     policy = json.loads(keyret['Policy'])
 
     changes_needed = {}
     assert_policy_shape(policy)
-    had_invalid_entries = False
     for statement in policy['Statement']:
         for granttype in ['role', 'role grant', 'admin']:
             # do we want this grant type? Are we on its statement?
@@ -170,15 +155,6 @@ def do_grant(kms, keyarn, role_arn, granttypes, mode='grant', dry_run=True, clea
                 # we're granting and we recognize this statement ID.
 
                 if granttype in granttypes:
-                    invalid_entries = list(filter(lambda x: not x.startswith('arn:aws:iam::'), statement['Principal']['AWS']))
-                    if clean_invalid_entries and len(list(invalid_entries)):
-                        # we have bad/invalid entries. These are roles that were deleted.
-                        # prune the list.
-                        valid_entries = filter(lambda x: x.startswith('arn:aws:iam::'), statement['Principal']['AWS'])
-                        statement['Principal']['AWS'] = valid_entries
-                        had_invalid_entries = True
-
-
                     if not role_arn in statement['Principal']['AWS']: # needs to be added.
                         changes_needed[granttype] = 'add'
                         if not dry_run:
@@ -195,18 +171,15 @@ def do_grant(kms, keyarn, role_arn, granttypes, mode='grant', dry_run=True, clea
                 if not dry_run:
                     statement['Principal']['AWS'].remove(role_arn)
 
-    try:
-        if len(changes_needed) and not dry_run:
-            policy_json_string = json.dumps(policy)
-            kms.put_key_policy(KeyId=keyarn, PolicyName='default', Policy=policy_json_string)
-    except:
-        raise Exception("{}: // {}".format("e", policy_json_string))
+    if len(changes_needed) and not dry_run:
+        #policy_json_string = json.dumps({'Policy': policy})
+        policy_json_string = json.dumps(policy)
+        kms.put_key_policy(KeyId=keyarn, PolicyName='default', Policy=policy_json_string)
 
         # returns nothing, so we have to just assume it didn't throw
         ret['changed'] = True
 
     ret['changes_needed'] = changes_needed
-    ret['had_invalid_entries'] = had_invalid_entries
     if dry_run:
         # true if changes > 0
         ret['changed'] = (not len(changes_needed) == 0)
@@ -219,14 +192,14 @@ def assert_policy_shape(policy):
     if policy['Version'] != "2012-10-17":
         errors.append('Unknown version/date ({}) of policy. Things are probably different than we assumed they were.'.format(policy['Version']))
 
-    found_statement_type = {}
+    haz = {}
     for statement in policy['Statement']:
         for label,sidlabel in statement_label.items():
             if statement['Sid'] == sidlabel:
-                found_statement_type[label] = True
+                haz[label] = True
 
     for statementtype in statement_label.keys():
-        if not found_statement_type.get(statementtype):
+        if not haz.get(statementtype):
             errors.append('Policy is missing {}.'.format(statementtype))
 
     if len(errors):
@@ -242,7 +215,6 @@ def main():
             role_name = dict(required=False, type='str'),
             role_arn = dict(required=False, type='str'),
             grant_types = dict(required=False, type='list'),
-            clean_invalid_entries = dict(type='bool', default=True),
         )
     )
 
@@ -264,32 +236,33 @@ def main():
         kms = ansible.module_utils.ec2.boto3_conn(module, conn_type='client', resource='kms', region=region, endpoint=ec2_url, **aws_connect_kwargs)
         iam = ansible.module_utils.ec2.boto3_conn(module, conn_type='client', resource='iam', region=region, endpoint=ec2_url, **aws_connect_kwargs)
     except botocore.exceptions.NoCredentialsError as e:
-        module.fail_json(msg='cannot connect to AWS', exception=traceback.format_exc(e))
+        module.fail_json(msg=str(e))
 
 
-    try:
-        if module.params['key_alias'] and not module.params['key_arn']:
-            module.params['key_arn'] = get_arn_from_kms_alias(kms, module.params['key_alias'])
-        if not module.params['key_arn']:
-            module.fail_json(msg='key_arn or key_alias is required to {}'.format(mode))
+    if mode == 'grant' or mode == 'deny':
+        try:
+            if module.params['key_alias'] and not module.params['key_arn']:
+                module.params['key_arn'] = get_arn_from_kms_alias(kms, module.params['key_alias'])
+            if not module.params['key_arn']:
+                module.fail_json(msg='KMS ARN is required to {}'.format(mode))
 
-        if module.params['role_name'] and not module.params['role_arn']:
-            module.params['role_arn'] = get_arn_from_role_name(iam, module.params['role_name'])
-        if not module.params['role_arn']:
-            module.fail_json(msg='role_arn or role_name is required to {}'.format(module.params['mode']))
+            if module.params['role_name'] and not module.params['role_arn']:
+                module.params['role_arn'] = get_arn_from_role_name(iam, module.params['role_name'])
+            if not module.params['role_arn']:
+                module.fail_json(msg='IAM ARN is required to {}'.format(module.params['mode']))
 
-        # check the grant types for 'grant' only.
-        if mode == 'grant':
-            for g in module.params['grant_types']:
-                if not g in statement_label:
-                    module.fail_json(msg='{} is an unknown grant type.'.format(g))
+            # check the grant types for 'grant' only.
+            if mode == 'grant':
+                for g in module.params['grant_types']:
+                    if not g in statement_label:
+                        module.fail_json(msg='{} is an unknown grant type.'.format(g))
 
-        ret = do_grant(kms, module.params['key_arn'], module.params['role_arn'], module.params['grant_types'], mode=mode, dry_run=module.check_mode, clean_invalid_entries=module.params['clean_invalid_entries'])
-        result.update(ret)
+            ret = do_grant(kms, module.params['key_arn'], module.params['role_arn'], module.params['grant_types'], mode=mode, dry_run=module.check_mode)
+            result.update(ret)
 
-    except Exception as err:
-        error_msg = boto_exception(err)
-        module.fail_json(msg=error_msg, exception=traceback.format_exc(err))
+        except Exception as err:
+            error_msg = boto_exception(err)
+            module.fail_json(msg=error_msg, traceback=traceback.format_exc().splitlines())
 
     module.exit_json(**result)
 
