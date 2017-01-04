@@ -602,8 +602,10 @@ class SSLValidationHandler(urllib_request.BaseHandler):
         to_add = False
 
         # Write the dummy ca cert if we are running on Mac OS X
-        if system == 'Darwin':
-            os.write(tmp_fd, DUMMY_CA_CERT)
+        #if system == 'Darwin':
+        #    os.write(tmp_fd, DUMMY_CA_CERT)
+        if system == b('Darwin'):
+            os.write(tmp_fd, b_DUMMY_CA_CERT)
             # Default Homebrew path for OpenSSL certs
             paths_checked.append('/usr/local/etc/openssl')
 
@@ -792,7 +794,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
     # FIXME: change the following to use the generic_urlparse function
     #        to remove the indexed references for 'parsed'
     parsed = urlparse(url)
-    if parsed[0] != 'ftp':
+    if parsed[0] != b('ftp'):
         username = url_username
 
         if headers is None:
