@@ -432,7 +432,8 @@ def main():
         stack_params['StackPolicyBody'] = open(module.params['stack_policy'], 'r').read()
 
     template_parameters = module.params['template_parameters']
-    stack_params['Parameters'] = [{'ParameterKey':k, 'ParameterValue':v} for k, v in template_parameters.items()]
+    # convert all values to strings. The AWS API doesn't handle other types anyhow.
+    stack_params['Parameters'] = [{'ParameterKey':k, 'ParameterValue':str(v)} for k, v in template_parameters.items()]
 
     if isinstance(module.params.get('tags'), dict):
         stack_params['Tags'] = ansible.module_utils.ec2.ansible_dict_to_boto3_tag_list(module.params['tags'])
