@@ -433,7 +433,7 @@ def main():
 
     template_parameters = module.params['template_parameters']
     # convert all values to strings. The AWS API doesn't handle other types anyhow.
-    stack_params['Parameters'] = [{'ParameterKey':k, 'ParameterValue':str(v)} for k, v in template_parameters.items()]
+    stack_params['Parameters'] = [{'ParameterKey':k, 'ParameterValue':to_native(v)} for k, v in template_parameters.items()]
 
     if isinstance(module.params.get('tags'), dict):
         stack_params['Tags'] = ansible.module_utils.ec2.ansible_dict_to_boto3_tag_list(module.params['tags'])
