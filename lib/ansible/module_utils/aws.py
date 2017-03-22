@@ -27,15 +27,15 @@
 
 # boto3-only AWS modules live here.
 
-# don't duplicate code; bring this in from the old ec2.py util.
-from ansible.module_utils.ec2 import AWSRetry,AnsibleAWSError
+# don't duplicate code; bring this in from the old ec2.py util. it's okay that these aren't used locally.
+from ansible.module_utils.ec2 import AWSRetry, AnsibleAWSError # noqa
 
 try:
     import boto3
-    import botocore
     HAS_BOTO3 = True
 except:
     HAS_BOTO3 = False
+
 
 def boto_exception(err):
     '''generic error message handler'''
@@ -48,6 +48,7 @@ def boto_exception(err):
 
     return error
 
+
 def common_argument_spec():
     return dict(
         ec2_url=dict(),
@@ -58,6 +59,7 @@ def common_argument_spec():
         profile=dict(),
         region=dict(aliases=['aws_region', 'ec2_region']),
     )
+
 
 def connection(conn_type=None, resource=None, region=None, endpoint_url=None, profile_name=None, validate_certs=True):
     # not taking generic **args, we want to know precisely what we're passing on to boto3.
@@ -77,6 +79,7 @@ def connection(conn_type=None, resource=None, region=None, endpoint_url=None, pr
     # we fell out of the 'if' cases above, because they all return.
     raise ValueError('There is an issue in the calling code. You must specify either session, resource, '
                      'or client to the conn_type parameter in the connection function call')
+
 
 def get_module_aws_arguments(module):
     args = {}
