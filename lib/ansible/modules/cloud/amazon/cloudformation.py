@@ -5,13 +5,6 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-# upcoming features:
-# - Ted's multifile YAML concatenation
-# - changesets (and blocking/waiting for them)
-# - finish AWSRetry conversion
-# - move create/update code out of main
-# - unit tests
-
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['stableinterface'],
                     'supported_by': 'core'}
@@ -48,6 +41,7 @@ options:
       - If state is "present", stack will be created.  If state is "present" and if stack exists and template has changed, it will be updated.
         If state is "absent", stack will be removed.
     required: true
+    choices: [ "present", "absent" ]
   template:
     description:
       - The local path of the cloudformation template.
